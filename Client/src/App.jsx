@@ -1,16 +1,19 @@
-import { useState, useRef, useEffect } from 'react'
-import io from 'socket.io-client'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { supabase } from './supabase'
 import Btn from './Components/Btn'
 import RoomBtn from './Components/RoomBtn'
 
-const socket = io('http://localhost:3000')
+
 
 const configuration = {
   iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }],
   iceCandidatePoolSize: 10,
 }
 
+
+
 function App() {
+  const clientId = useRef(crypto.randomUUID())
   const [roomInfo, setRoomInfo] = useState('')
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [inputRoomId, setInputRoomId] = useState('')
@@ -25,158 +28,269 @@ function App() {
   const localStream = useRef(null)
   const remoteStream = useRef(null)
   const currentRoomId = useRef(null)
-
-  const initPeerConnectionRef = useRef(null)
-
-  initPeerConnectionRef.current = () => {
-    if (peerConnection.current) return
-
-    peerConnection.current = new RTCPeerConnection(configuration)
-
-console.log('PeerConnection created')
-
-peerConnection.current.onconnectionstatechange = () => {
-  console.log(
-    'Connection State:',
-    peerConnection.current.connectionState
-  )
+  const sendSignal = async (
+  roomId,
+  type,
+  payload
+) => {
+  await supabase.from('signals').insert({
+    room_id: roomId,
+    sender_id: clientId.current,
+    type,
+    payload,
+  })
 }
 
-peerConnection.current.oniceconnectionstatechange = () => {
-  console.log(
-    'ICE Connection State:',
-    peerConnection.current.iceConnectionState
-  )
-}
+  const initPeerConnection = useCallback(() => {
+  if (peerConnection.current) return
 
-peerConnection.current.onicegatheringstatechange = () => {
-  console.log(
-    'ICE Gathering State:',
-    peerConnection.current.iceGatheringState
-  )
-}
+  peerConnection.current = new RTCPeerConnection(configuration)
 
-    if (localStream.current) {
-      localStream.current.getTracks().forEach((track) => {
-        peerConnection.current.addTrack(track, localStream.current)
-      })
-    }
+  console.log('PeerConnection created')
 
-    peerConnection.current.addEventListener('icecandidate', (event) => {
-      if (event.candidate && currentRoomId.current) {
-        socket.emit('candidate', {
-          roomId: currentRoomId.current,
-          candidate: event.candidate,
-        })
-      }
-    })
+  peerConnection.current.onconnectionstatechange = () => {
+    console.log(
+      'Connection State:',
+      peerConnection.current.connectionState
+    )
+  }
 
-    peerConnection.current.addEventListener('track', (event) => {
-      console.log('Got remote track!', event.streams)
+  peerConnection.current.oniceconnectionstatechange = () => {
+    console.log(
+      'ICE Connection State:',
+      peerConnection.current.iceConnectionState
+    )
+  }
 
-      if (!remoteStream.current) {
-        remoteStream.current = new MediaStream()
+  peerConnection.current.onicegatheringstatechange = () => {
+    console.log(
+      'ICE Gathering State:',
+      peerConnection.current.iceGatheringState
+    )
+  }
 
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = remoteStream.current
-        }
-      }
-
-      event.streams[0].getTracks().forEach((track) => {
-        const exists = remoteStream.current
-          .getTracks()
-          .some((t) => t.id === track.id)
-
-        if (!exists) {
-          remoteStream.current.addTrack(track)
-        }
-      })
-
-      setIsRemoteConnected(true)
+  if (localStream.current) {
+    localStream.current.getTracks().forEach((track) => {
+      peerConnection.current.addTrack(
+        track,
+        localStream.current
+      )
     })
   }
 
-  useEffect(() => {
-    socket.on('user-joined', async () => {
-      try {
-        console.log('Peer joined! Creating offer...')
-
-        initPeerConnectionRef.current?.()
-
-        const offer = await peerConnection.current.createOffer()
-        await peerConnection.current.setLocalDescription(offer)
-
-        socket.emit('offer', {
-          roomId: currentRoomId.current,
-          sdp: offer,
-        })
-      } catch (err) {
-        console.error(err)
-      }
-    })
-
-    socket.on('offer', async (data) => {
-      try {
-        console.log('Received offer')
-
-        initPeerConnectionRef.current?.()
-
-        await peerConnection.current.setRemoteDescription(
-          new RTCSessionDescription(data.sdp)
+  peerConnection.current.addEventListener(
+    'icecandidate',
+    (event) => {
+      if (
+        event.candidate &&
+        currentRoomId.current
+      ) {
+        sendSignal(
+          currentRoomId.current,
+          'candidate',
+          {
+            candidate: event.candidate,
+          }
         )
-
-        const answer = await peerConnection.current.createAnswer()
-
-        await peerConnection.current.setLocalDescription(answer)
-
-        socket.emit('answer', {
-          roomId: currentRoomId.current,
-          sdp: answer,
-        })
-      } catch (err) {
-        console.error(err)
-      }
-    })
-
-    socket.on('answer', async (data) => {
-      try {
-        console.log('Received answer')
-
-        if (!peerConnection.current) return
-
-        if (peerConnection.current.remoteDescription) return
-
-        await peerConnection.current.setRemoteDescription(
-          new RTCSessionDescription(data.sdp)
-        )
-      } catch (err) {
-        console.error(err)
-      }
-    })
-
-    socket.on('candidate', async (data) => {
-      try {
-        if (!peerConnection.current || !data.candidate) return
-
-        await peerConnection.current.addIceCandidate(
-          new RTCIceCandidate(data.candidate)
-        )
-      } catch (err) {
-        console.error('Error adding ICE candidate:', err)
-      }
-    })
-
-    return () => {
-      socket.off('user-joined')
-      socket.off('offer')
-      socket.off('answer')
-      socket.off('candidate')
-
-      if (peerConnection.current) {
-        peerConnection.current.close()
       }
     }
-  }, [])
+  )
+
+  peerConnection.current.addEventListener(
+    'track',
+    (event) => {
+      if (!remoteStream.current) {
+        remoteStream.current =
+          new MediaStream()
+
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject =
+            remoteStream.current
+        }
+      }
+
+      event.streams[0]
+        .getTracks()
+        .forEach((track) => {
+          const exists =
+            remoteStream.current
+              .getTracks()
+              .some(
+                (t) => t.id === track.id
+              )
+
+          if (!exists) {
+            remoteStream.current.addTrack(
+              track
+            )
+          }
+        })
+
+      setIsRemoteConnected(true)
+    }
+  )
+},[])
+
+ useEffect(() => {
+  const roomsChannel = supabase
+  .channel('rooms-watch')
+  .on(
+    'postgres_changes',
+    {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'rooms',
+    },
+    async ({ new: room }) => {
+      try {
+        if (
+          room.room_id !==
+          currentRoomId.current
+        )
+          return
+
+        if (
+          room.host_id !==
+          clientId.current
+        )
+          return
+
+        if (!room.guest_id) return
+
+        console.log(
+          'Guest joined. Creating offer...'
+        )
+
+        initPeerConnection()
+
+        const offer =
+          await peerConnection.current.createOffer()
+
+        await peerConnection.current.setLocalDescription(
+          offer
+        )
+
+        await sendSignal(
+          room.room_id,
+          'offer',
+          {
+            sdp: offer,
+          }
+        )
+      } catch (err) {
+        console.error(err)
+      }
+    }
+  )
+  .subscribe()
+  const channel = supabase
+    .channel('webrtc-room')
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'signals',
+      },
+      async ({ new: signal }) => {
+        try {
+          if (
+            signal.room_id !==
+            currentRoomId.current
+          )
+            return
+
+          if (
+            signal.sender_id === clientId.current
+          )
+            return
+
+          switch (signal.type) {
+            
+
+            case 'offer': {
+              console.log('Received offer')
+
+              initPeerConnection()
+
+              await peerConnection.current.setRemoteDescription(
+                new RTCSessionDescription(
+                  signal.payload.sdp
+                )
+              )
+
+              const answer =
+                await peerConnection.current.createAnswer()
+
+              await peerConnection.current.setLocalDescription(
+                answer
+              )
+
+              await sendSignal(
+                currentRoomId.current,
+                'answer',
+                {
+                  sdp: answer,
+                }
+              )
+
+              break
+            }
+
+            case 'answer': {
+              console.log('Received answer')
+
+              if (
+                !peerConnection.current
+              )
+                return
+
+              if (
+                peerConnection.current
+                  .remoteDescription
+              )
+                return
+
+              await peerConnection.current.setRemoteDescription(
+                new RTCSessionDescription(
+                  signal.payload.sdp
+                )
+              )
+
+              break
+            }
+
+            case 'candidate': {
+              if (
+                !peerConnection.current
+              )
+                return
+
+              await peerConnection.current.addIceCandidate(
+                new RTCIceCandidate(
+                  signal.payload.candidate
+                )
+              )
+
+              break
+            }
+          }
+        } catch (err) {
+          console.error(err)
+        }
+      }
+    )
+    .subscribe()
+
+  return () => {
+  supabase.removeChannel(roomsChannel)
+  supabase.removeChannel(channel)
+
+  if (peerConnection.current) {
+    peerConnection.current.close()
+  }
+}
+}, [initPeerConnection])
 
   const openUserMedia = async () => {
     try {
@@ -198,19 +312,7 @@ peerConnection.current.onicegatheringstatechange = () => {
     }
   }
 
-  const handleCreateRoom = async () => {
-    if (!localStream.current) {
-      await openUserMedia()
-    }
 
-    const generatedId = Math.random().toString(36).substring(2, 9)
-
-    currentRoomId.current = generatedId
-
-    setRoomInfo(`Room: ${generatedId} (Caller)`)
-
-    socket.emit('join-room', generatedId)
-  }
 
   const handleJoinRoomConfirm = async () => {
     if (!inputRoomId.trim()) return
@@ -225,7 +327,17 @@ peerConnection.current.onicegatheringstatechange = () => {
 
     setShowJoinModal(false)
 
-    socket.emit('join-room', inputRoomId.trim())
+const { error } = await supabase
+  .from('rooms')
+  .update({
+    guest_id: clientId.current,
+  })
+  .eq('room_id', inputRoomId.trim())
+  .is('guest_id', null)
+
+if (error) {
+  console.error(error)
+}
   }
 
   const toggleCamera = () => {
@@ -249,38 +361,67 @@ peerConnection.current.onicegatheringstatechange = () => {
       setIsMicActive(audioTrack.enabled)
     }
   }
-
-  const handleHangUp = () => {
-    if (localStream.current) {
-      localStream.current.getTracks().forEach((track) => track.stop())
-    }
-
-    if (remoteStream.current) {
-      remoteStream.current.getTracks().forEach((track) => track.stop())
-    }
-
-    if (peerConnection.current) {
-      peerConnection.current.close()
-    }
-
-    peerConnection.current = null
-    localStream.current = null
-    remoteStream.current = null
-    currentRoomId.current = null
-
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = null
-    }
-
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = null
-    }
-
-    setRoomInfo('')
-    setIsCamActive(false)
-    setIsMicActive(false)
-    setIsRemoteConnected(false)
+const handleCreateRoom = async () => {
+  if (!localStream.current) {
+    await openUserMedia()
   }
+
+  const generatedId =
+    Math.random().toString(36).substring(2, 9)
+
+  currentRoomId.current = generatedId
+
+  setRoomInfo(`Room: ${generatedId} (Caller)`)
+
+  const { error } = await supabase
+    .from('rooms')
+    .insert({
+      room_id: generatedId,
+      host_id: clientId.current,
+    })
+
+  if (error) {
+    console.error(error)
+  }
+}
+ const handleHangUp = async () => {
+  if (currentRoomId.current) {
+    await supabase
+      .from('rooms')
+      .delete()
+      .eq('room_id', currentRoomId.current)
+  }
+
+  if (localStream.current) {
+    localStream.current.getTracks().forEach((track) => track.stop())
+  }
+
+  if (remoteStream.current) {
+    remoteStream.current.getTracks().forEach((track) => track.stop())
+  }
+
+  if (peerConnection.current) {
+    peerConnection.current.close()
+  }
+
+  peerConnection.current = null
+  localStream.current = null
+  remoteStream.current = null
+  currentRoomId.current = null
+
+  if (localVideoRef.current) {
+    localVideoRef.current.srcObject = null
+  }
+
+  if (remoteVideoRef.current) {
+    remoteVideoRef.current.srcObject = null
+  }
+
+  setRoomInfo('')
+  setIsCamActive(false)
+  setIsMicActive(false)
+  setIsRemoteConnected(false)
+}
 
   return (
     <div className="bg-violet-950 min-h-dvh w-full p-4 md:py-20 md:px-56 flex flex-col items-center justify-center text-fuchsia-50 relative">
