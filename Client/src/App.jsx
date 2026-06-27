@@ -46,27 +46,27 @@ function App() {
 
   peerConnection.current = new RTCPeerConnection(configuration)
 
-  console.log('PeerConnection created')
+  //console.log('PeerConnection created')
 
   peerConnection.current.onconnectionstatechange = () => {
-    console.log(
-      'Connection State:',
-      peerConnection.current.connectionState
-    )
+    // console.log(
+    //   'Connection State:',
+    //   peerConnection.current.connectionState
+    // )
   }
 
   peerConnection.current.oniceconnectionstatechange = () => {
-    console.log(
-      'ICE Connection State:',
-      peerConnection.current.iceConnectionState
-    )
+    // console.log(
+    //   'ICE Connection State:',
+    //   peerConnection.current.iceConnectionState
+    // )
   }
 
   peerConnection.current.onicegatheringstatechange = () => {
-    console.log(
-      'ICE Gathering State:',
-      peerConnection.current.iceGatheringState
-    )
+    // console.log(
+    //   'ICE Gathering State:',
+    //   peerConnection.current.iceGatheringState
+    // )
   }
 
   if (localStream.current) {
@@ -157,9 +157,9 @@ function App() {
 
         if (!room.guest_id) return
 
-        console.log(
-          'Guest joined. Creating offer...'
-        )
+        // console.log(
+        //   'Guest joined. Creating offer...'
+        // )
 
         initPeerConnection()
 
@@ -178,7 +178,7 @@ function App() {
           }
         )
       } catch (err) {
-        console.error(err)
+        //console.error(err)
       }
     }
   )
@@ -209,7 +209,7 @@ function App() {
             
 
             case 'offer': {
-              console.log('Received offer')
+             // console.log('Received offer')
 
               initPeerConnection()
 
@@ -238,7 +238,7 @@ function App() {
             }
 
             case 'answer': {
-              console.log('Received answer')
+              //console.log('Received answer')
 
               if (
                 !peerConnection.current
@@ -276,7 +276,7 @@ function App() {
             }
           }
         } catch (err) {
-          console.error(err)
+          //console.error(err)
         }
       }
     )
@@ -308,7 +308,7 @@ function App() {
       setIsCamActive(true)
       setIsMicActive(true)
     } catch (err) {
-      console.error('Camera permissions blocked:', err)
+      //console.error('Camera permissions blocked:', err)
     }
   }
 
@@ -336,7 +336,7 @@ const { error } = await supabase
   .is('guest_id', null)
 
 if (error) {
-  console.error(error)
+  //console.error(error)
 }
   }
 
@@ -381,7 +381,7 @@ const handleCreateRoom = async () => {
     })
 
   if (error) {
-    console.error(error)
+    //console.error(error)
   }
 }
  const handleHangUp = async () => {
